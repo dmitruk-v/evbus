@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -12,10 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-type clientError struct {
-	client *client
-	err    error
-}
+// type clientError struct {
+// 	client *client
+// 	err    error
+// }
 
 type client struct {
 	id          uuid.UUID
@@ -23,21 +22,21 @@ type client struct {
 	log         *log.Logger
 	broadcastCh chan *message
 	messageCh   chan<- *message
-	errCh       chan *clientError
 	topics      map[string]bool
 	squitCh     chan struct{}
-	wg          sync.WaitGroup
 	cquitCh     chan struct{}
+	wg          sync.WaitGroup
 }
 
 // Spawn two goroutines. One for reading from connection and another
 // for writing to connection. Both parts will exit when we close client quit channel.
 func (c *client) handle() {
-	c.wg.Add(2)
+	c.wg.Add(1)
 	go func() {
 		c.read()
 		c.wg.Done()
 	}()
+	c.wg.Add(1)
 	go func() {
 		c.write()
 		c.wg.Done()
@@ -57,10 +56,7 @@ func (c *client) read() {
 				if errors.Is(err, io.EOF) {
 					return
 				}
-				c.errCh <- &clientError{
-					client: c,
-					err:    fmt.Errorf("reading from client, with error: %v", err),
-				}
+				c.log.Println(err)
 				return
 			}
 			msg.Client = c
@@ -77,10 +73,7 @@ func (c *client) write() {
 			return
 		case msg := <-c.broadcastCh:
 			if err := encoder.Encode(msg); err != nil {
-				c.errCh <- &clientError{
-					client: c,
-					err:    fmt.Errorf("writing to client, with error: %v", err),
-				}
+				c.log.Println(err)
 				return
 			}
 		}

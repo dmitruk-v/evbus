@@ -1,11 +1,11 @@
 package server
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -18,7 +18,6 @@ type server struct {
 	listener  net.Listener
 	clients   map[uuid.UUID]*client
 	messageCh chan *message
-	errCh     chan *clientError
 	squitCh   chan struct{}
 	wg        *sync.WaitGroup
 }
@@ -29,7 +28,6 @@ func New(addr string, log *log.Logger) *server {
 		addr:      addr,
 		clients:   make(map[uuid.UUID]*client),
 		messageCh: make(chan *message),
-		errCh:     make(chan *clientError, 1),
 		squitCh:   make(chan struct{}),
 		wg:        &sync.WaitGroup{},
 	}
@@ -41,19 +39,25 @@ func (s *server) Listen() error {
 		return err
 	}
 	s.listener = listener
-	s.log.Printf("Listen at %v\n", s.addr)
-	s.wg.Add(2)
-	go s.run()
-	go s.serve()
+	s.log.Printf("Event-bus server listens at %v\n", s.addr)
+
+	s.wg.Add(1)
+	go func() {
+		s.run()
+		s.wg.Done()
+	}()
+
+	s.wg.Add(1)
+	go func() {
+		s.serve()
+		s.wg.Done()
+	}()
+
 	s.wg.Wait()
 	return nil
 }
 
 func (s *server) serve() {
-	defer func() {
-		s.wg.Done()
-		fmt.Println("SERVE exited")
-	}()
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
@@ -64,7 +68,7 @@ func (s *server) serve() {
 				s.log.Println(err)
 			}
 		} else {
-			s.log.Printf("%v: [CONNECTED]\n", conn.RemoteAddr())
+			s.log.Printf("%v: Connected\n", conn.RemoteAddr())
 			client := s.newClient(conn)
 			s.wg.Add(1)
 			go func() {
@@ -76,24 +80,17 @@ func (s *server) serve() {
 }
 
 func (s *server) run() {
-	defer func() {
-		s.wg.Done()
-		s.log.Println("RUN exited")
-	}()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGINT)
 	for {
 		select {
-		case sig := <-sigCh:
-			s.log.Printf("Got a signal: %v\n", sig)
+		case <-sigCh:
 			s.close()
 			return
 		case msg := <-s.messageCh:
 			if err := s.processMessage(msg); err != nil {
 				s.log.Println(err)
 			}
-		case cerr := <-s.errCh:
-			s.log.Printf("%v: [ERROR]: %v\n", cerr.client.conn.RemoteAddr(), cerr.err)
 		}
 	}
 }
@@ -114,33 +111,38 @@ func (s *server) processMessage(msg *message) error {
 
 func (s *server) subscribe(msg *message) {
 	msg.Client.topics[msg.Topic] = true
-	s.log.Printf("%v: [SUBSCRIBE]: %v\n", msg.Client.conn.RemoteAddr(), msg)
+	s.log.Printf("%v: Subscribed to: %v\n", msg.Client.conn.RemoteAddr(), msg.Topic)
 }
 
 func (s *server) emit(msg *message) {
-	s.log.Printf("%v: [EMIT]: %v\n", msg.Client.conn.RemoteAddr(), msg)
+	var clients []string
 	for _, cl := range s.clients {
 		if _, ok := cl.topics[msg.Topic]; !ok {
 			continue
 		}
 		cl.broadcastCh <- msg
-		s.log.Printf("  TO %v\n", cl.conn.RemoteAddr())
+		clients = append(clients, cl.conn.RemoteAddr().String())
 	}
+	s.log.Printf("%v: Emitted: %v -> %v\n", msg.Client.conn.RemoteAddr(), msg.Topic, strings.Join(clients, ", "))
 }
 
 func (s *server) disconnectClient(c *client) {
 	delete(s.clients, c.id)
 	close(c.cquitCh)
-	c.conn.Close()
-	s.log.Printf("%v: [DISCONNECTED]\n", c.conn.RemoteAddr())
+	if err := c.conn.Close(); err != nil {
+		s.log.Println(err)
+	}
+	s.log.Printf("%v: Disconnected\n", c.conn.RemoteAddr())
 }
 
 func (s *server) close() {
 	close(s.squitCh)
+	if err := s.listener.Close(); err != nil {
+		s.log.Println(err)
+	}
 	for _, c := range s.clients {
 		s.disconnectClient(c)
 	}
-	s.listener.Close()
 }
 
 func (s *server) newClient(conn net.Conn) *client {
@@ -151,11 +153,10 @@ func (s *server) newClient(conn net.Conn) *client {
 		log:         s.log,
 		broadcastCh: make(chan *message),
 		messageCh:   s.messageCh,
-		errCh:       s.errCh,
 		topics:      make(map[string]bool),
 		squitCh:     s.squitCh,
-		wg:          sync.WaitGroup{},
 		cquitCh:     make(chan struct{}),
+		wg:          sync.WaitGroup{},
 	}
 	s.clients[id] = client
 	return client

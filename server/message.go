@@ -1,6 +1,9 @@
 package server
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	CmdEmit       = "Emit"
@@ -9,8 +12,9 @@ const (
 )
 
 type message struct {
-	Client *client         `json:"-"`
-	Cmd    string          `json:"cmd"`
-	Topic  string          `json:"topic"`
-	Data   json.RawMessage `json:"data"`
+	Client    *client         `json:"-"`
+	Cmd       string          `json:"cmd"`
+	Topic     string          `json:"topic"`
+	Data      json.RawMessage `json:"data"`
+	CreatedAt time.Time       `json:"created_at"`
 }

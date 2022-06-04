@@ -11,106 +11,130 @@ import (
 )
 
 type EventBusClient struct {
-	log   *log.Logger
-	saddr string
-	conn  net.Conn
-	subs  map[string]SubscribeHandler
+	log         *log.Logger
+	saddr       string
+	conn        net.Conn
+	subs        map[string]SubscribeHandler
+	herrCh      chan error // handlers errors
+	isConnected bool
 }
 
 type SubscribeHandler func(data []byte) error
 
-func newClient(saddr string, conn net.Conn) *EventBusClient {
-	return &EventBusClient{
-		log:   log.Default(),
-		saddr: saddr,
-		conn:  conn,
-		subs:  make(map[string]SubscribeHandler),
-	}
-}
-
-func Connect(saddr string) (*EventBusClient, error) {
+func NewClient(saddr string) *EventBusClient {
 	conn, err := net.Dial("tcp", saddr)
 	if err != nil {
-		return nil, err
+		panic(fmt.Sprintf("[EventBus]: connecting to event-bus server at %v, with error: %v\n", saddr, err))
 	}
-	c := newClient(saddr, conn)
-	c.log.Printf("Connected to %v\n", c.saddr)
-	return c, nil
+	c := &EventBusClient{
+		log:         log.Default(),
+		saddr:       saddr,
+		conn:        conn,
+		subs:        make(map[string]SubscribeHandler),
+		herrCh:      make(chan error),
+		isConnected: true,
+	}
+	c.log.Printf("[EventBus]: client connected to the server at %v\n", c.conn.RemoteAddr())
+	c.run()
+	return c
 }
 
-func (ebc *EventBusClient) Emit(topic string, data interface{}) error {
-	msg := outMessage{
-		message: message{Cmd: CmdEmit, Topic: topic},
-		Data:    data,
-	}
-	if err := json.NewEncoder(ebc.conn).Encode(msg); err != nil {
-		return fmt.Errorf("send emit message %v to the server, with error: %v", msg, err)
-	}
-	return nil
-}
+func (c *EventBusClient) run() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGINT)
 
-func (ebc *EventBusClient) Subscribe(topic string, handler SubscribeHandler) error {
-	msg := outMessage{
-		message: message{Cmd: CmdSubscribe, Topic: topic},
-	}
-	if err := json.NewEncoder(ebc.conn).Encode(msg); err != nil {
-		return fmt.Errorf("send subscribe message %v to the server, with error: %v", msg, err)
-	}
-	ebc.subs[msg.Topic] = handler
-	return nil
-}
-
-func (ebc *EventBusClient) Disconnect() error {
-	defer ebc.conn.Close()
-	msg := outMessage{
-		message: message{Cmd: CmdDisconnect},
-	}
-	if err := json.NewEncoder(ebc.conn).Encode(msg); err != nil {
-		return fmt.Errorf("send disconnect message %v to the server, with error: %v", msg, err)
-	}
-	fmt.Println("--- done! ---")
-	return nil
-}
-
-func (ebc *EventBusClient) Run() {
-	errCh := make(chan error)
+	// Show errors
 	go func() {
-		decoder := json.NewDecoder(ebc.conn)
+		for {
+			select {
+			case <-sigCh:
+				c.Disconnect()
+			case herr, ok := <-c.herrCh:
+				if !ok {
+					return
+				}
+				c.log.Printf("[EventBus]: [Handler error]: %v\n", herr)
+			}
+		}
+	}()
+
+	// Read from server
+	go func() {
+		defer c.disconnect()
+		decoder := json.NewDecoder(c.conn)
 		for {
 			msg := &inMessage{}
 			if err := decoder.Decode(msg); err != nil {
-				// If there is an error or server closes connection - exit from goroutine
-				errCh <- fmt.Errorf("[ERROR]: %v", err)
+				// If there is an error or server closes connection - exit client
+				c.log.Printf("[EventBus]: %v\n", err)
 				return
 			}
-			handler, ok := ebc.subs[msg.Topic]
+			handler, ok := c.subs[msg.Topic]
 			if !ok {
 				continue
 			}
 			go func() {
 				if err := handler([]byte(msg.Data)); err != nil {
-					errCh <- fmt.Errorf("[HANDLER ERROR]: %v", err)
+					c.herrCh <- err
 				}
 			}()
 		}
 	}()
+}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGINT)
-	for {
-		select {
-		case err := <-errCh:
-			ebc.log.Println(err)
-		case <-sigCh:
-			if err := ebc.Disconnect(); err != nil {
-				ebc.log.Println(err)
-			}
-			ebc.log.Printf("Disconnected from %v\n", ebc.saddr)
-			return
-		}
+func (c *EventBusClient) SetLogger(log *log.Logger) {
+	c.log = log
+}
+
+func (c *EventBusClient) Emit(topic string, data interface{}) {
+	if !c.isConnected {
+		c.log.Println("[EventBus]: trying to emmit, but client not connected to the server")
+		return
+	}
+	msg := outMessage{
+		message: message{Cmd: CmdEmit, Topic: topic},
+		Data:    data,
+	}
+	if err := json.NewEncoder(c.conn).Encode(msg); err != nil {
+		c.log.Printf("[EventBus]: send emit message %v to the server, with error: %v\n", msg, err)
+		return
 	}
 }
 
-func (ebc *EventBusClient) SetLogger(log *log.Logger) {
-	ebc.log = log
+func (c *EventBusClient) Subscribe(topic string, handler SubscribeHandler) {
+	if !c.isConnected {
+		c.log.Println("[EventBus]: trying to subscribe, but client not connected to the server")
+		return
+	}
+	msg := outMessage{
+		message: message{Cmd: CmdSubscribe, Topic: topic},
+	}
+	if err := json.NewEncoder(c.conn).Encode(msg); err != nil {
+		c.log.Printf("[EventBus]: send subscribe message %v to the server, with error: %v\n", msg, err)
+		return
+	}
+	c.subs[msg.Topic] = handler
+}
+
+// Client initiated disconnect
+func (c *EventBusClient) Disconnect() {
+	defer c.conn.Close()
+	if !c.isConnected {
+		c.log.Println("[EventBus]: trying to disconnect, but client not connected to the server")
+		return
+	}
+	msg := outMessage{
+		message: message{Cmd: CmdDisconnect},
+	}
+	if err := json.NewEncoder(c.conn).Encode(msg); err != nil {
+		c.log.Printf("[EventBus]: send disconnect message %v to the server, with error: %v\n", msg, err)
+		return
+	}
+}
+
+// Server initialted disconnect
+func (c *EventBusClient) disconnect() {
+	close(c.herrCh)
+	c.isConnected = false
+	c.log.Printf("[EventBus]: client disconnected from server at %v\n", c.conn.RemoteAddr())
 }

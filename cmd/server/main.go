@@ -15,7 +15,7 @@ func main() {
 }
 
 func run() error {
-	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime|log.Lshortfile|log.LstdFlags)
+	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime)
 	server := ebServer.New(":4000", logger)
 	if err := server.Listen(); err != nil {
 		return err
