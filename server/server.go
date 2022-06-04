@@ -20,6 +20,7 @@ type server struct {
 	messageCh chan *message
 	squitCh   chan struct{}
 	wg        *sync.WaitGroup
+	storage   *storage
 }
 
 func New(addr string, log *log.Logger) *server {
@@ -30,6 +31,7 @@ func New(addr string, log *log.Logger) *server {
 		messageCh: make(chan *message),
 		squitCh:   make(chan struct{}),
 		wg:        &sync.WaitGroup{},
+		storage:   &storage{},
 	}
 }
 
