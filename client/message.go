@@ -6,6 +6,7 @@ const (
 	CmdEmit       = "Emit"
 	CmdSubscribe  = "Subscribe"
 	CmdDisconnect = "Disconnect"
+	CmdSync       = "Sync"
 )
 
 type message struct {

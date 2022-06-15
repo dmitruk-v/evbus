@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"log"
 
-	ebus "github.com/dmitruk-v/event-bus/client"
+	ebclient "github.com/dmitruk-v/evbus/client"
 )
 
 func main() {
-	ebClient := ebus.NewClient(":4000")
+	ebClient := ebclient.New(":4000")
 	ebClient.Subscribe("bla", func(data []byte) error {
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {

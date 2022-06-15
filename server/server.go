@@ -19,19 +19,21 @@ type server struct {
 	clients   map[uuid.UUID]*client
 	messageCh chan *message
 	squitCh   chan struct{}
-	wg        *sync.WaitGroup
-	storage   *storage
+	wg        sync.WaitGroup
+
+	storage *storage
 }
 
-func New(addr string, log *log.Logger) *server {
+func New(addr string) *server {
 	return &server{
-		log:       log,
+		log:       log.New(os.Stdout, "", log.Ldate|log.Ltime),
 		addr:      addr,
 		clients:   make(map[uuid.UUID]*client),
 		messageCh: make(chan *message),
 		squitCh:   make(chan struct{}),
-		wg:        &sync.WaitGroup{},
-		storage:   &storage{},
+		wg:        sync.WaitGroup{},
+
+		storage: NewStorage(512),
 	}
 }
 
@@ -41,17 +43,17 @@ func (s *server) Listen() error {
 		return err
 	}
 	s.listener = listener
-	s.log.Printf("Event-bus server listens at %v\n", s.addr)
+	s.log.Printf("\x1b[33mEvent-bus server listens at %v\x1b[0m\n", s.addr)
 
 	s.wg.Add(1)
 	go func() {
-		s.run()
+		s.serve()
 		s.wg.Done()
 	}()
 
 	s.wg.Add(1)
 	go func() {
-		s.serve()
+		s.run()
 		s.wg.Done()
 	}()
 
@@ -72,6 +74,15 @@ func (s *server) serve() {
 		} else {
 			s.log.Printf("%v: Connected\n", conn.RemoteAddr())
 			client := s.newClient(conn)
+
+			// s.wg.Add(1)
+			// go func() {
+			// 	// Immediately on connection send all cached events to client.
+			// 	// With order: earlier first.
+			// 	s.syncCh <- client
+			// 	s.wg.Done()
+			// }()
+
 			s.wg.Add(1)
 			go func() {
 				client.handle()
@@ -105,6 +116,8 @@ func (s *server) processMessage(msg *message) error {
 		s.subscribe(msg)
 	case CmdDisconnect:
 		s.disconnectClient(msg.Client)
+	case CmdSync:
+		s.flush(msg.Client)
 	default:
 		return ErrUnknownCommand{cmd: msg.Cmd}
 	}
@@ -117,6 +130,7 @@ func (s *server) subscribe(msg *message) {
 }
 
 func (s *server) emit(msg *message) {
+	s.storage.add(msg) // cache message
 	var clients []string
 	for _, cl := range s.clients {
 		if _, ok := cl.topics[msg.Topic]; !ok {
@@ -144,6 +158,19 @@ func (s *server) close() {
 	}
 	for _, c := range s.clients {
 		s.disconnectClient(c)
+	}
+}
+
+func (s *server) flush(c *client) {
+	for _, msg := range s.storage.getAll() {
+		if msg == nil {
+			break
+		}
+		if _, ok := c.topics[msg.Topic]; !ok {
+			continue
+		}
+		c.broadcastCh <- msg
+		s.log.Printf("STORAGE: Emitted: %v -> %v\n", msg.Topic, c.conn.RemoteAddr())
 	}
 }
 

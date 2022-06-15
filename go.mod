@@ -1,4 +1,4 @@
-module github.com/dmitruk-v/event-bus
+module github.com/dmitruk-v/evbus
 
 go 1.18
 

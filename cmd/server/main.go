@@ -1,10 +1,10 @@
 package main
 
 import (
+	"flag"
 	"log"
-	"os"
 
-	ebServer "github.com/dmitruk-v/event-bus/server"
+	ebserv "github.com/dmitruk-v/evbus/server"
 )
 
 func main() {
@@ -15,8 +15,10 @@ func main() {
 }
 
 func run() error {
-	logger := log.New(os.Stdout, "", log.Ldate|log.Ltime)
-	server := ebServer.New(":4000", logger)
+	addr := flag.String("addr", ":3366", "Address of the server. Examples: 172.16.1.14:4001, :4002")
+	flag.Parse()
+
+	server := ebserv.New(*addr)
 	if err := server.Listen(); err != nil {
 		return err
 	}

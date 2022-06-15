@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"time"
 
-	ebus "github.com/dmitruk-v/event-bus/client"
+	ebclient "github.com/dmitruk-v/evbus/client"
 )
 
 func main() {
-	ebClient := ebus.NewClient(":4000")
+	ebClient := ebclient.New(":4000")
+	go ebClient.Run()
 
 	for i := 0; i < 3; i++ {
 		ebClient.Emit("bla", fmt.Sprintf("%d-data", i))
