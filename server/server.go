@@ -43,7 +43,7 @@ func (s *server) Listen() error {
 		return err
 	}
 	s.listener = listener
-	s.log.Printf("\x1b[33mEvent-bus server listens at %v\x1b[0m\n", s.addr)
+	s.log.Printf("\x1b[33mEvent-bus server listens at\x1b[0m %v\n", s.addr)
 
 	s.wg.Add(1)
 	go func() {
