@@ -2,8 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
 	"log"
 	"net"
 	"sync"
@@ -53,10 +51,8 @@ func (c *client) read() {
 		default:
 			msg := &message{}
 			if err := decoder.Decode(msg); err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				}
 				c.log.Println(err)
+				c.disconnect()
 				return
 			}
 			msg.Client = c
@@ -77,5 +73,12 @@ func (c *client) write() {
 				return
 			}
 		}
+	}
+}
+
+func (c *client) disconnect() {
+	c.messageCh <- &message{
+		Client: c,
+		Cmd:    CmdDisconnect,
 	}
 }
