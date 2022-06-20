@@ -51,7 +51,7 @@ func (c *client) read() {
 		default:
 			msg := &message{}
 			if err := decoder.Decode(msg); err != nil {
-				c.log.Println(err)
+				c.log.Printf("%v: %v\n", c.conn.RemoteAddr(), err)
 				c.disconnect()
 				return
 			}
@@ -69,7 +69,7 @@ func (c *client) write() {
 			return
 		case msg := <-c.broadcastCh:
 			if err := encoder.Encode(msg); err != nil {
-				c.log.Println(err)
+				c.log.Printf("%v: %v\n", c.conn.RemoteAddr(), err)
 				return
 			}
 		}
