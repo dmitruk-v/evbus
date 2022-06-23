@@ -31,7 +31,7 @@ type executionData struct {
 func New(saddr string) *EventBusClient {
 	conn, err := net.Dial("tcp", saddr)
 	if err != nil {
-		panic(fmt.Sprintf("[EventBus]: connecting to event-bus server at %v, with error: %v\n", saddr, err))
+		panic(fmt.Sprintf("[EventBus]: connecting to event-bus server at %v, with error: %v", saddr, err))
 	}
 	c := &EventBusClient{
 		log:         log.Default(),

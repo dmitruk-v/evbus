@@ -1,2 +1,4 @@
+github.com/dmitruk-v/retry v0.1.2 h1:3zgZw6IaoOlIJ2mSaTQEH5xMaLzEowFXkoBNKKmxfHU=
+github.com/dmitruk-v/retry v0.1.2/go.mod h1:w5C7DGwInpBipOgq5M92IsvpLTwjNRKrXEZBZhdicrs=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
 github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
